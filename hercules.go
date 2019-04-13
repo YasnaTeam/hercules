@@ -88,6 +88,8 @@ func (h *Hercules) StartAll() chan error {
 
 // Start starts a worker to download his part
 func (h *Hercules) Start(partNum int) error {
+	defer h.Done(partNum)
+
 	if 0 == len(h.parts) || partNum >= len(h.parts) {
 		h.error("the part number is greater than the capacity")
 		return errors.New("the part number is greater than the capacity")
@@ -225,8 +227,6 @@ func (h *Hercules) getPart(partNum int) error {
 	var client http.Client
 	req, err := http.NewRequest("GET", h.Addr, nil)
 	if err != nil {
-		h.Done(4)
-
 		return err
 	}
 
@@ -234,15 +234,11 @@ func (h *Hercules) getPart(partNum int) error {
 	req.Header.Add("Range", bytesRange)
 	resp, err := client.Do(req)
 	if err != nil {
-		h.Done(4)
-
 		return err
 	}
 
 	size, err := strconv.ParseInt(resp.Header["Content-Length"][0], 10, 64)
 	if err != nil {
-		h.Done(4)
-
 		return err
 	}
 
@@ -254,7 +250,6 @@ func (h *Hercules) getPart(partNum int) error {
 	}
 
 	if size != partSize {
-		h.Done(4)
 		h.error(fmt.Sprintf("could not fetch part #%d, wants %dB, %dB given", partNum, partSize, size))
 
 		return errors.New(fmt.Sprintf("could not fetch part #%d, wants %dB, %dB given", partNum, partSize, size))
@@ -269,7 +264,6 @@ func (h *Hercules) getPart(partNum int) error {
 
 func (h *Hercules) savePartOnDisk(body io.ReadCloser, n int) error {
 	defer body.Close()
-	defer h.Done(n) // release the sync lock
 
 	buf := make([]byte, 4*1024)
 	offset := h.parts[n].Start
