@@ -255,39 +255,53 @@ func (h *Hercules) getPart(partNum int) error {
 		return errors.New(fmt.Sprintf("could not fetch part #%d, wants %dB, %dB given", partNum, partSize, size))
 	}
 
-	if err := h.savePartOnDisk(resp.Body, partNum); err != nil {
+	nw, err := h.savePartOnDisk(resp.Body, partNum)
+	if err != nil {
 		return err
+	}
+	if nw != partSize {
+		h.error(fmt.Sprintf("could not write part #%d, wants %dB, %dB given", partNum, partSize, nw))
+		return errors.New(fmt.Sprintf("could not write part #%d, wants %dB, %dB given", partNum, partSize, nw))
 	}
 
 	return nil
 }
 
-func (h *Hercules) savePartOnDisk(body io.ReadCloser, n int) error {
+func (h *Hercules) savePartOnDisk(body io.ReadCloser, n int) (int64, error) {
 	defer body.Close()
 
 	buf := make([]byte, 4*1024)
 	offset := h.parts[n].Start
+	var sum int64
+
 	h.log(fmt.Sprintf("Writing offset %d to the disk...", offset))
 	for {
-		b, err := body.Read(buf)
-		if err != nil {
-			if "EOF" == err.Error() {
-				break
-			}
-
-			return err
-		}
+		b, bufErr := body.Read(buf)
 
 		nw, err := h.File.WriteAt(buf[0:b], offset)
 		if err != nil {
 			h.error(fmt.Sprintf("an error on writing part #%d occurred: %s", n, err))
-			return errors.New(fmt.Sprintf("an error on writing part #%d occurred: %s", n, err))
+			return sum, errors.New(fmt.Sprintf("an error on writing part #%d occurred: %s", n, err))
 		}
 
-		offset = int64(nw) + offset
+		if nw != b {
+			h.error(fmt.Sprintf("on part #%d, %dB must be written, %dB has been written.", n, b, nw))
+			return sum, errors.New(fmt.Sprintf("on part #%d, %dB must be written, %dB has been written.", n, b, nw))
+		}
+
+		sum += int64(nw)
+		offset += int64(nw)
+
+		if bufErr != nil {
+			if "EOF" == bufErr.Error() {
+				break
+			}
+
+			return sum, err
+		}
 	}
 
-	return nil
+	return sum, nil
 }
 
 func (h *Hercules) log(a interface{}) {
